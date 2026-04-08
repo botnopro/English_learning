@@ -1,7 +1,7 @@
 const RAW_API_BASE_URL =
   process.env.NEXT_PUBLIC_API_BASE_URL ||
   process.env.NEXT_PUBLIC_API_URL ||
-  'https://english-learning-be.onrender.com/api';
+  'https://english-learning-be.vercel.app/api';
 //   'http://localhost:5000/api';
 
 const BASE_URL = RAW_API_BASE_URL.replace(/\/+$/, '');
