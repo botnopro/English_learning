@@ -531,7 +531,11 @@ function ReviewPanel({ token }: { token: string | null }) {
     else setIncorrect(c => c + 1);
 
     if (token && words[idx]) {
-      try { await recordInteraction(words[idx]._id, isCorrect, token); } catch {}
+      try {
+        await recordInteraction(words[idx]._id, isCorrect, token);
+      } catch (e) {
+        console.warn('recordInteraction failed (main review):', e);
+      }
     }
   };
 
@@ -1075,6 +1079,12 @@ function CommunityPanel({ token }: { token: string | null }) {
               setAnswerResult(isCorrect);
               if (isCorrect) setCorrect(c => c + 1);
               else setIncorrect(c => c + 1);
+
+              if (token && current?._id) {
+                void recordInteraction(current._id, isCorrect, token).catch((e) => {
+                  console.warn('recordInteraction failed (community review):', e);
+                });
+              }
             }}
             onNext={() => {
               if (idx + 1 >= practiceWords.length) setDone(true);
