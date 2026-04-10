@@ -4,7 +4,7 @@ import {
   Word, login, register, reviewByTopic, reviewByLevel,
   addToMyVocab, recordInteraction, TOPICS, LEVELS, createWord, getMe, getMyVocab, normalizeAuthToken, updateMyVocabEntry, removeFromMyVocab,
   setMyVocabVisibility, getCommunityWords,
-  getApiLogHistory, getApiLogEventName, ApiLogEntry
+  getApiLogHistory, getApiLogEventName, ApiLogEntry, RecordInteractionResponse
 } from '../lib/api';
 
 const RANDOM_TOPIC_VALUE = '__RANDOM_TOPIC__';
@@ -107,6 +107,17 @@ function normalizeForCompare(input: string): string {
     .replace(/\s+/g, ' ');
 }
 
+function formatInteractionSummary(data: RecordInteractionResponse): string {
+  const previousLevel = typeof data.previousLevel === 'number' ? data.previousLevel : '-';
+  const newLevel = typeof data.newLevel === 'number' ? data.newLevel : '-';
+  const correctStreak = typeof data.correctStreak === 'number' ? data.correctStreak : '-';
+  const incorrectStreak = typeof data.incorrectStreak === 'number' ? data.incorrectStreak : '-';
+  const totalInteractions = typeof data.totalInteractions === 'number' ? data.totalInteractions : '-';
+  const totalCorrect = typeof data.totalCorrect === 'number' ? data.totalCorrect : '-';
+  const totalIncorrect = typeof data.totalIncorrect === 'number' ? data.totalIncorrect : '-';
+  return `Level ${previousLevel} -> ${newLevel} | streak dung: ${correctStreak}, sai: ${incorrectStreak} | tong: ${totalInteractions} (dung ${totalCorrect}, sai ${totalIncorrect})`;
+}
+
 function FlashCard({ word, index, total, showAnswer, answerResult, onSubmitAnswer, onNext, isLast, mode }: FlashCardProps) {
   const [answerInput, setAnswerInput] = useState('');
 
@@ -124,6 +135,7 @@ function FlashCard({ word, index, total, showAnswer, answerResult, onSubmitAnswe
 
   const question = mode === 'en-to-vi' ? word.englishWord : word.vietnameseWord;
   const answer = mode === 'en-to-vi' ? word.vietnameseWord : word.englishWord;
+  const displayLevel = typeof word.personalLevel === 'number' ? word.personalLevel : word.level;
 
   const hasExact = useMemo(() => {
     const normalizedAnswer = normalizeForCompare(answer || '');
@@ -156,7 +168,7 @@ function FlashCard({ word, index, total, showAnswer, answerResult, onSubmitAnswe
         <span className="card-mode-badge">{mode === 'en-to-vi' ? '🇬🇧 → 🇻🇳' : '🇻🇳 → 🇬🇧'}</span>
 
         <div style={{ marginBottom: '0.5rem' }}>
-          <span className={`level-badge level-${word.level}`}>Cấp {word.level}</span>
+          <span className={`level-badge level-${displayLevel}`}>Cấp {displayLevel}</span>
         </div>
 
         <div className="card-question">{question}</div>
@@ -284,6 +296,7 @@ function ReviewPanel({ token }: { token: string | null }) {
   const [done, setDone] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [interactionStats, setInteractionStats] = useState('');
   const [addedIds, setAddedIds] = useState<Set<string>>(new Set());
   const [myVocabList, setMyVocabList] = useState<Word[]>([]);
   const [myVocabLoading, setMyVocabLoading] = useState(false);
@@ -532,8 +545,15 @@ function ReviewPanel({ token }: { token: string | null }) {
 
     if (token && words[idx]) {
       try {
-        await recordInteraction(words[idx]._id, isCorrect, token);
+        const interactionRes = await recordInteraction(words[idx]._id, isCorrect, token);
+        if (typeof interactionRes.newLevel === 'number') {
+          const nextLevel = interactionRes.newLevel;
+          setWords(prev => prev.map((w, i) => (i === idx ? { ...w, personalLevel: nextLevel, level: nextLevel } : w)));
+        }
+        setInteractionStats(formatInteractionSummary(interactionRes));
+        console.info('recordInteraction (main review):', interactionRes);
       } catch (e) {
+        setInteractionStats('Khong nhan duoc response tu BE cho lan nop dap an nay.');
         console.warn('recordInteraction failed (main review):', e);
       }
     }
@@ -749,6 +769,8 @@ function ReviewPanel({ token }: { token: string | null }) {
             <span className="stat-chip stat-incorrect">✗ {incorrect}</span>
           </div>
 
+          {interactionStats && <div className="alert alert-success" style={{ marginTop: '0.6rem' }}>{interactionStats}</div>}
+
           <FlashCard
             word={currentWord}
             index={idx}
@@ -887,6 +909,7 @@ function CommunityPanel({ token }: { token: string | null }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [info, setInfo] = useState('');
+  const [interactionStats, setInteractionStats] = useState('');
   const [communityTopic, setCommunityTopic] = useState<string>('');
   const [communityLevel, setCommunityLevel] = useState<number | ''>('');
   const [communityCount, setCommunityCount] = useState<number>(20);
@@ -1051,6 +1074,7 @@ function CommunityPanel({ token }: { token: string | null }) {
 
         {error && <div className="alert alert-error" style={{ marginTop: '0.8rem' }}>{error}</div>}
         {info && <div className="alert alert-success" style={{ marginTop: '0.8rem' }}>{info}</div>}
+        {interactionStats && <div className="alert alert-success" style={{ marginTop: '0.8rem' }}>{interactionStats}</div>}
 
         <p style={{ marginTop: '0.8rem', color: '#666' }}>
           Đây là khu vực công khai: mọi người đều có thể thấy từ public và lưu về vốn từ của mình để học/test.
@@ -1081,9 +1105,19 @@ function CommunityPanel({ token }: { token: string | null }) {
               else setIncorrect(c => c + 1);
 
               if (token && current?._id) {
-                void recordInteraction(current._id, isCorrect, token).catch((e) => {
-                  console.warn('recordInteraction failed (community review):', e);
-                });
+                void recordInteraction(current._id, isCorrect, token)
+                  .then((interactionRes) => {
+                    if (typeof interactionRes.newLevel === 'number') {
+                      const nextLevel = interactionRes.newLevel;
+                      setPracticeWords(prev => prev.map((w, i) => (i === idx ? { ...w, personalLevel: nextLevel, level: nextLevel } : w)));
+                    }
+                    setInteractionStats(formatInteractionSummary(interactionRes));
+                    console.info('recordInteraction (community review):', interactionRes);
+                  })
+                  .catch((e) => {
+                    setInteractionStats('Khong nhan duoc response tu BE cho lan nop dap an nay.');
+                    console.warn('recordInteraction failed (community review):', e);
+                  });
               }
             }}
             onNext={() => {

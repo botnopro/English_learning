@@ -2,7 +2,7 @@ const RAW_API_BASE_URL =
   process.env.NEXT_PUBLIC_API_BASE_URL ||
   process.env.NEXT_PUBLIC_API_URL ||
   'https://english-learning-be.vercel.app/api';
-//   'http://localhost:5000/api';
+  // 'http://localhost:5000/api';
 
 const BASE_URL = RAW_API_BASE_URL.replace(/\/+$/, '');
 const API_DEBUG = process.env.NEXT_PUBLIC_API_DEBUG !== '0';
@@ -41,6 +41,20 @@ export interface ReviewSession {
   incorrect: number;
   showAnswer: boolean;
   mode: 'en-to-vi' | 'vi-to-en';
+}
+
+export interface RecordInteractionResponse {
+  message: string;
+  wordId?: string;
+  isCorrect?: boolean;
+  previousLevel?: number;
+  newLevel?: number;
+  correctStreak?: number;
+  incorrectStreak?: number;
+  totalInteractions?: number;
+  totalCorrect?: number;
+  totalIncorrect?: number;
+  reviewedAt?: string;
 }
 
 type ApiLogMeta = Record<string, unknown>;
@@ -444,7 +458,7 @@ export async function removeFromMyVocab(wordId: string, token: string) {
   return res.json();
 }
 
-export async function recordInteraction(wordId: string, isCorrect: boolean, token: string) {
+export async function recordInteraction(wordId: string, isCorrect: boolean, token: string): Promise<RecordInteractionResponse> {
   const safeToken = requireValidToken(token, 'recordInteraction');
   const url = `${BASE_URL}/words/${wordId}/interact`;
   logApi('request', 'recordInteraction', { method: 'POST', url, wordId, isCorrect, token: getTokenMeta(safeToken) });
@@ -453,9 +467,38 @@ export async function recordInteraction(wordId: string, isCorrect: boolean, toke
     headers: getHeaders(safeToken),
     body: JSON.stringify({ isCorrect }),
   });
-  logApi('response', 'recordInteraction', { status: res.status, ok: res.ok, wordId });
-  if (!res.ok) throw new Error('Không ghi nhận được kết quả');
-  return res.json();
+  const raw = await res.json().catch(() => ({} as any));
+  const data: RecordInteractionResponse = {
+    message: String(raw?.message || ''),
+    wordId: typeof raw?.wordId === 'string' ? raw.wordId : wordId,
+    isCorrect: typeof raw?.isCorrect === 'boolean' ? raw.isCorrect : isCorrect,
+    previousLevel: typeof raw?.previousLevel === 'number' ? raw.previousLevel : undefined,
+    newLevel: typeof raw?.newLevel === 'number' ? raw.newLevel : undefined,
+    correctStreak: typeof raw?.correctStreak === 'number' ? raw.correctStreak : undefined,
+    incorrectStreak: typeof raw?.incorrectStreak === 'number' ? raw.incorrectStreak : undefined,
+    totalInteractions: typeof raw?.totalInteractions === 'number' ? raw.totalInteractions : undefined,
+    totalCorrect: typeof raw?.totalCorrect === 'number' ? raw.totalCorrect : undefined,
+    totalIncorrect: typeof raw?.totalIncorrect === 'number' ? raw.totalIncorrect : undefined,
+    reviewedAt: typeof raw?.reviewedAt === 'string' ? raw.reviewedAt : undefined,
+  };
+  logApi('response', 'recordInteraction', {
+    status: res.status,
+    ok: res.ok,
+    wordId,
+    body: {
+      message: data?.message,
+      previousLevel: data?.previousLevel,
+      newLevel: data?.newLevel,
+      correctStreak: data?.correctStreak,
+      incorrectStreak: data?.incorrectStreak,
+      totalInteractions: data?.totalInteractions,
+      totalCorrect: data?.totalCorrect,
+      totalIncorrect: data?.totalIncorrect,
+      reviewedAt: data?.reviewedAt,
+    },
+  });
+  if (!res.ok) throw new Error(data?.message || 'Không ghi nhận được kết quả');
+  return data;
 }
 
 export async function getAllWords(token?: string | null): Promise<Word[]> {
